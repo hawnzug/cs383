@@ -1,0 +1,40 @@
+name:                simpl
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/hawnzug/simpl#readme
+license:             BSD3
+license-file:        LICENSE
+author:              hawnzug
+maintainer:          hawnzug@gmail.com
+copyright:           2018 hawnzug
+category:            Compiler
+build-type:          Simple
+cabal-version:       >=1.10
+extra-source-files:  README.md
+
+library
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  build-depends:       base
+                     , megaparsec
+                     , text
+  exposed-modules:     Simpl.Core
+                     , Simpl.Parser
+
+executable simpl
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  build-depends:       base
+                     , simpl
+  default-language:    Haskell2010
+
+test-suite simpl-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      tests
+  main-is:             Tests.hs
+  build-depends:       base
+                     , simpl
+                     , tasty
+                     , tasty-hunit
+  default-language:    Haskell2010
