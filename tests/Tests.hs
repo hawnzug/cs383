@@ -5,7 +5,7 @@ import Test.Tasty.HUnit
 import Simpl.Parser
 import Simpl.Core
 
-import Unbound.Generics.LocallyNameless (s2n)
+import Unbound.Generics.LocallyNameless (s2n, aeq)
 
 main = defaultMain parserTests
 
@@ -42,5 +42,5 @@ parserTests = testGroup "Parser tests"
         t = BoolLit True
         f = BoolLit False
         parseEq input expect = case parseMb input of
-          Just e -> show e @?= show expect
+          Just e -> aeq e expect @? "aeq"
           _ -> assertFailure "cannot parse"
