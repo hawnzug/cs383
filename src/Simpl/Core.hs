@@ -36,7 +36,6 @@ data Expr
   | Cons Expr Expr
 
   | Ref Expr
-  | RefCell Address -- It's value
   | Assign Expr Expr
   | Deref Expr
 
@@ -52,7 +51,26 @@ data Expr
   | Let (Bind (NameE, Embed Expr) Expr)
   | Cond Expr Expr Expr
   | Loop Expr Expr
+
+  | Value Value
   deriving (Show, Generic, Typeable)
+
+data Value
+  = Vint  Integer
+  | Vpre  NameE
+  | Vunit
+  | Vbool Bool
+  | Vref  Address
+  | Vpair Value Value
+  | Vlist [Value]
+  | Vfn   (Bind NameE Expr)
+  | Vrec  (Bind NameE Expr)
+  deriving (Show, Generic, Typeable)
+
+instance Alpha Value
+
+instance Subst Expr Value where
+  isvar _ = Nothing
 
 instance Alpha Expr
 
@@ -61,4 +79,4 @@ instance Subst Expr Expr where
   isvar _       = Nothing
 
 type Address = Int
-type Memory = Vector Expr
+type Memory = Vector Value
