@@ -2,13 +2,13 @@
 module Simpl.Parser where
 
 import Control.Applicative ((<|>))
-import Data.Text.Lazy (Text)
-import qualified Data.Text.Lazy as T
 import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Expr
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as Lex
+
+import Unbound.Generics.LocallyNameless as Unbound
 
 import Simpl.Core
 
@@ -17,7 +17,8 @@ _func f c = do
   n <- identifier
   symbol "=>"
   e <- expr
-  return (c n e)
+  let name = Unbound.s2n n
+  return $ c (Unbound.bind name e)
 
 _cond = do
   symbol "if" 
@@ -36,7 +37,9 @@ _let = do
   symbol "in"
   e2 <- expr
   symbol "end"
-  return (Let n e1 e2)
+  let name = Unbound.s2n n
+      pattern = (name, Unbound.embed e1)
+  return (Let (Unbound.bind pattern e2))
 
 _loop = do
   symbol "while"
@@ -79,7 +82,7 @@ aexpr = (choice
   [ try _pair
   , try (Unit <$ symbol "()")
   , parens expr
-  , Var <$> identifier
+  , (Var . Unbound.s2n) <$> identifier
   , IntLit <$> integer
   , BoolLit True <$ symbol "true"
   , BoolLit False <$ symbol "false"
@@ -124,8 +127,8 @@ reservedWords =
   , "fn", "let", "in", "end", "if", "then", "else", "while"
   ]
 
-identifier :: Parser Text
-identifier = T.pack <$> (lexeme . try) (p >>= check)
+identifier :: Parser String
+identifier = (lexeme . try) (p >>= check)
   where
     p = (:) <$> (char '_' <|> lowerChar)
             <*> many (char '_' <|> char '\'' <|> alphaNumChar)
@@ -135,5 +138,8 @@ identifier = T.pack <$> (lexeme . try) (p >>= check)
       else return x
 
 prog = sc *> expr <* eof
-parseProg name = readFile name >>= parseTest prog
+parseProg input filename =
+  case parse prog filename input of
+    Left err -> Left $ parseErrorPretty err
+    Right e -> Right e 
 parseMb = parseMaybe prog

@@ -19,8 +19,12 @@ library
   build-depends:       base
                      , megaparsec
                      , text
+                     , unbound-generics
+                     , mtl
+                     , vector
   exposed-modules:     Simpl.Core
                      , Simpl.Parser
+                     , Simpl.Eval
 
 executable simpl
   hs-source-dirs:      app
@@ -35,6 +39,7 @@ test-suite simpl-test
   main-is:             Tests.hs
   build-depends:       base
                      , simpl
+                     , unbound-generics
                      , tasty
                      , tasty-hunit
   default-language:    Haskell2010

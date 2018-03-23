@@ -5,40 +5,42 @@ import Test.Tasty.HUnit
 import Simpl.Parser
 import Simpl.Core
 
+import Unbound.Generics.LocallyNameless (s2n)
+
 main = defaultMain parserTests
 
 parserTests = testGroup "Parser tests"
   [ testCase "Unit, Pair, Parens" $
-      parse "((()), ())" >>=
-      (@?= Pair Unit Unit)
+      parseEq "((()), ())" $
+      Pair Unit Unit
   , testCase "Sequence" $
-      parse "a;b;c" >>=
-      (@?= (a `Seq` b) `Seq` c)
+      parseEq "a;b;c" $
+      (a `Seq` b) `Seq` c
   , testCase "Operator" $
-      parse "a + b * c <= d" >>=
-      (@?= (a `Add` (b `Mult` c)) `LessEq` d)
+      parseEq "a + b * c <= d" $
+      (a `Add` (b `Mult` c)) `LessEq` d
   , testCase "App Ref Deref Neg" $
-      parse "~a not !b ref c" >>=
-      (@?= ((Neg a) `App` (Not $ Deref b)) `App` (Ref c))
+      parseEq "~a not !b ref c" $
+      ((Neg a) `App` (Not $ Deref b)) `App` (Ref c)
   , testCase "AndAlso OrElse" $
-      parse "a > b orelse a >= c andalso b = c" >>=
-      (@?= (a `Greater` b) `OrElse` ((a `GreaterEq` c) `AndAlso` (b `Eq` c)))
+      parseEq "a > b orelse a >= c andalso b = c" $
+      (a `Greater` b) `OrElse` ((a `GreaterEq` c) `AndAlso` (b `Eq` c))
   , testCase "Comment and Whitespace" $
-      parse "(* bla (* bla *) bla *)\n a \r\n\t(**)  " >>=
-      (@?= a)
+      parseEq "(* bla (* bla *) bla *)\n a \r\n\t(**)  " a
   , testCase "List Bool" $
-      parse "false :: true :: nil" >>=
-      (@?= f `Cons` (t `Cons` Nil))
+      parseEq "false :: true :: nil" $
+      f `Cons` (t `Cons` Nil)
   , testCase "Identifier" $
-      parse "not' true_ _1a" >>=
-      (@?= ((Var "not'") `App` (Var "true_")) `App` (Var "_1a"))
+      parseEq "not' true_ _1a" $
+      ((v "not'") `App` (v "true_")) `App` (v "_1a")
   ]
-  where a = Var "a"
-        b = Var "b"
-        c = Var "c"
-        d = Var "d"
+  where a = v "a"
+        b = v "b"
+        c = v "c"
+        d = v "d"
+        v = Var . s2n
         t = BoolLit True
         f = BoolLit False
-        parse input = case parseMb input of
-          Just v -> return v
+        parseEq input expect = case parseMb input of
+          Just e -> show e @?= show expect
           _ -> assertFailure "cannot parse"

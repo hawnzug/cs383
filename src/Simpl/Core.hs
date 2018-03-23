@@ -1,6 +1,15 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Simpl.Core where
 
-import Data.Text.Lazy (Text)
+import Data.Vector (Vector)
+import Unbound.Generics.LocallyNameless
+import GHC.Generics (Generic)
+import Data.Typeable (Typeable)
+
+type NameE = Name Expr
 
 data Expr
 
@@ -27,19 +36,29 @@ data Expr
   | Cons Expr Expr
 
   | Ref Expr
+  | RefCell Address -- It's value
   | Assign Expr Expr
   | Deref Expr
 
-  | Fn Text Expr
-  | Rec Text Expr
+  | Fn (Bind NameE Expr)
+  | Rec (Bind NameE Expr)
   | App Expr Expr
 
   | Unit
-  | Var Text
+  | Var NameE
   | Pair Expr Expr
 
   | Seq Expr Expr
-  | Let Text Expr Expr
+  | Let (Bind (NameE, Embed Expr) Expr)
   | Cond Expr Expr Expr
   | Loop Expr Expr
-  deriving (Show, Eq)
+  deriving (Show, Generic, Typeable)
+
+instance Alpha Expr
+
+instance Subst Expr Expr where
+  isvar (Var x) = Just (SubstName x)
+  isvar _       = Nothing
+
+type Address = Int
+type Memory = Vector Expr
