@@ -23,10 +23,7 @@ library
                      , mtl
                      , vector
                      , containers
-  exposed-modules:     Simpl.Core
-                     , Simpl.Parser
-                     , Simpl.Eval
-                     , Simpl.Infer
+  exposed-modules:     Infer
 
 executable simpl
   hs-source-dirs:      app
