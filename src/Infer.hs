@@ -36,8 +36,11 @@ data TypeError
 
 type TVar = Int
 type Subst = Map TVar Type
-newtype Env = Env (Map EVar Type)
+newtype Env = Env (Map EVar Scheme)
 type Infer a = ExceptT TypeError (State TVar) a
+
+envInsert :: EVar -> Scheme -> Env -> Env
+envInsert v s (Env e) = Env $ Map.insert v s e
 
 class Substitutable a where
   apply    :: Subst -> a -> a
@@ -103,7 +106,9 @@ occurs a t = Set.member a (freeVars t)
 infer :: Env -> Expr -> Infer (Subst, Type)
 infer _ (Lit _) = return (Map.empty, TInt)
 infer (Env env) (Var v) = case Map.lookup v env of
-  Just t -> return (Map.empty, t)
+  Just scheme -> do
+    t <- instantiate scheme
+    return (Map.empty, t)
   Nothing -> throwError UnboundedVar
 infer env (Add e1 e2) = do
   (s1, t1) <- infer env e1
@@ -111,10 +116,10 @@ infer env (Add e1 e2) = do
   s3 <- unify (apply s2 t1) TInt
   s4 <- unify (apply s3 t2) TInt
   return (s4 `compose` s3 `compose` s2 `compose` s1, TInt)
-infer (Env env) (Lam v body) = do
+infer env (Lam v body) = do
   tv <- fresh
-  let env1 = Map.insert v tv env
-  (s, tbody) <- infer (Env env1) body
+  let env1 = envInsert v (Scheme [] tv) env
+  (s, tbody) <- infer env1 body
   return $ (s, TArr (apply s tv) tbody)
 infer env (App e1 e2) = do
   tv <- fresh
@@ -122,5 +127,12 @@ infer env (App e1 e2) = do
   (s2, t2) <- infer (apply s1 env) e2
   s3 <- unify (apply s2 t1) (TArr t2 tv)
   return (s3 `compose` s2 `compose` s1, apply s3 tv)
+infer env (Let v e1 e2) = do
+  (s1, t1) <- infer env e1
+  let env1  = apply s1 env
+      t1'   = generalize env1 t1
+      env2  = envInsert v t1' env1
+  (s2, t2) <- infer env2 e2
+  return (s2 `compose` s1, t2)
 
 haha expr = snd <$> (runInfer $ infer (Env Map.empty) expr)
