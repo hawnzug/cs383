@@ -1,6 +1,6 @@
 module Main where
 
-import Infer
+import InferNL
 
 main :: IO ()
 main = putStrLn "infer"

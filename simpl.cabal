@@ -23,7 +23,7 @@ library
                      , mtl
                      , vector
                      , containers
-  exposed-modules:     Infer
+  exposed-modules:     InferNL
 
 executable simpl
   hs-source-dirs:      app
