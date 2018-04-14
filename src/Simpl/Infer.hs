@@ -13,14 +13,11 @@ import GHC.Generics (Generic)
 import Data.Typeable (Typeable)
 import Control.Monad.Except
 import Control.Monad.State
-import Control.Monad.Writer
 import Control.Monad.Reader
-import Data.Monoid (Any(..))
+import Data.Monoid (Any(..), (<>))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Data.List ((\\))
+import Data.List (union, (\\))
 
 import Simpl.Core
 
@@ -56,7 +53,7 @@ instance Show Type where
     showsPrec d t .
     showString "]"
 
-newtype Scheme = Scheme (Bind [NameT] Type) deriving (Show, Generic, Typeable)
+newtype Scheme = Scheme (Bind [NameT] (Type, [Constraint])) deriving (Show, Generic, Typeable)
 newtype Env = Env (Map NameE Scheme)
 
 instance Alpha Type
@@ -80,11 +77,10 @@ data TypeError
   deriving Show
 
 type Constraint = (Type, Type)
-type Infer a = ReaderT Env (WriterT [Constraint] (ExceptT TypeError FreshM)) a
+type Infer a = ReaderT Env (ExceptT TypeError FreshM) a
 
-runInfer :: Infer a -> Either TypeError (a, [Constraint])
-runInfer i =
-  runFreshM $ runExceptT $ runWriterT $ runReaderT i $ Env Map.empty
+runInfer :: Infer a -> Either TypeError a
+runInfer i = runFreshM $ runExceptT $ runReaderT i $ Env Map.empty
 
 envInsert :: (MonadReader Env m) => NameE -> Scheme -> m a -> m a
 envInsert x s m = do
@@ -94,37 +90,33 @@ envInsert x s m = do
 freshTV :: (Fresh m) => m Type
 freshTV = TVar <$> (fresh $ s2n "t")
 
-instantiate :: (Fresh m) => Scheme -> m Type
-instantiate (Scheme bd) = do
-  (ns, t) <- unbind bd
-  ns' <- mapM (const freshTV) ns
-  return $ substs (zip ns ns') t
-generalize :: Env -> Type -> Scheme
-generalize (Env env) t = Scheme (bind ns t)
-  where ns = freeVars t \\ freeVars (Map.elems env)
+instantiate :: (Fresh m) => Scheme -> m (Type, [Constraint])
+instantiate (Scheme bd) = snd <$> unbind bd
+
+generalize :: Env -> [Constraint] -> Type -> Scheme
+generalize (Env env) cs t = Scheme (bind ns (t, cs'))
+  where ns = (freeVars t `union` freeVars cs) \\ freeVars (Map.elems env)
+        cs' = filter (\c -> any (`elem` freeVars c) ns) cs
 
 inferBinop e1 e2 to tr = do
-  t1 <- infer e1
-  t2 <- infer e2
-  tell [(t1, to), (t2, to)]
-  return tr
+  (t1, cs1) <- infer e1
+  (t2, cs2) <- infer e2
+  return (tr, (t1, to):(t2, to):cs1 <> cs2)
   
 infer :: (MonadReader Env m,
-          MonadWriter [Constraint] m,
           MonadError TypeError m,
           Fresh m) =>
-         Expr -> m Type
-infer (IntLit _) = return TInt
+         Expr -> m (Type, [Constraint])
+infer (IntLit _) = return (TInt, [])
 infer (Neg e) = do
-  t <- infer e
-  tell [(t, TInt)]
-  return TInt
+  (t, cs) <- infer e
+  return (TInt, (t, TInt):cs)
 infer (Add e1 e2) = inferBinop e1 e2 TInt TInt
 infer (Sub e1 e2) = inferBinop e1 e2 TInt TInt
 infer (Mult e1 e2) = inferBinop e1 e2 TInt TInt
 infer (Div e1 e2) = inferBinop e1 e2 TInt TInt
 infer (Mod e1 e2) = inferBinop e1 e2 TInt TInt
-infer (BoolLit _) = return TBool
+infer (BoolLit _) = return (TBool, [])
 infer (AndAlso e1 e2) = inferBinop e1 e2 TBool TBool
 infer (OrElse e1 e2) = inferBinop e1 e2 TBool TBool
 -- TODO Eq/Neq forall type
@@ -135,71 +127,71 @@ infer (LessEq e1 e2) = inferBinop e1 e2 TInt TBool
 infer (Greater e1 e2) = inferBinop e1 e2 TInt TBool
 infer (GreaterEq e1 e2) = inferBinop e1 e2 TInt TBool
 infer (Not e) = do
-  t <- infer e
-  tell [(t, TBool)]
-  return TBool
+  (t, cs) <- infer e
+  return (TBool, (t, TBool):cs)
 infer Nil = do
   tv <- freshTV
-  return $ TList tv
+  return $ (TList tv, [])
 infer (Cons e1 e2) = do
-  t1 <- infer e1
-  t2 <- infer e2
-  tell [(t2, TList t1)]
-  return $ TList t1
-infer (Ref e) = TRef <$> infer e
+  (t1, cs1) <- infer e1
+  (t2, cs2) <- infer e2
+  return (TList t1, (t2, TList t1):cs1 <> cs2)
+infer (Ref e) = do
+  (t, cs) <- infer e
+  return (TRef t, cs)
 infer (Assign e1 e2) = do
-  reft <- infer e1
-  t <- infer e2
-  tell [(reft, TRef t)]
-  return TUnit
+  (reft, cs1) <- infer e1
+  (t, cs2) <- infer e2
+  return (TUnit, (reft, TRef t):cs1 <> cs2)
 infer (Deref e) = do
-  reft <- infer e
+  (reft, cs) <- infer e
   t <- freshTV
-  tell [(reft, TRef t)]
-  return t
+  return (t, (reft, TRef t):cs)
 infer (Fn bd) = do
   (v, body) <- unbind bd
   tv <- freshTV
-  tbody <- envInsert v (Scheme (bind [] tv)) (infer body)
-  return $ TArr tv tbody
+  (tbody, cs) <- envInsert v (Scheme (bind [] (tv, []))) (infer body)
+  return $ (TArr tv tbody, cs)
 infer (Rec bd) = do
   (v, body) <- unbind bd
   tv <- freshTV
-  tbody <- envInsert v (Scheme (bind [] tv)) (infer body)
-  tell [(tv, tbody)]
-  return tbody
+  (tbody, cs) <- envInsert v (Scheme (bind [] (tv, []))) (infer body)
+  return (tbody, (tv, tbody):cs)
 infer (App e1 e2) = do
-  t1 <- infer e1
-  t2 <- infer e2
+  (t1, cs1) <- infer e1
+  (t2, cs2) <- infer e2
   tv <- freshTV
-  tell [(t1, t2 `TArr` tv)]
-  return tv
-infer Unit = return TUnit
+  return (tv, (t1, t2 `TArr` tv):cs1 <> cs2)
+infer Unit = return (TUnit, [])
 infer (Var v) = do
   Env env <- ask
   case Map.lookup v env of
     Just scheme -> instantiate scheme
     Nothing -> throwError UnboundedVar
-infer (Pair e1 e2) = TPair <$> infer e1 <*> infer e2
-infer (Seq e1 e2) = infer e1 >> infer e2
+infer (Pair e1 e2) = do
+  (t1, cs1) <- infer e1
+  (t2, cs2) <- infer e2
+  return (TPair t1 t2, cs1 <> cs2)
+infer (Seq e1 e2) = do
+  (t1, cs1) <- infer e1
+  (t2, cs2) <- infer e2
+  return (t2, cs1 <> cs2)
 infer (Let bd) = do
   ((x, e), body) <- unbind bd
   env <- ask
-  t1 <- infer (unembed e)
-  let s1 = generalize env t1
-  t2 <- envInsert x s1 (infer body)
-  return t2
+  (t1, cs1) <- infer (unembed e)
+  let s1 = generalize env cs1 t1
+  (t2, cs2) <- envInsert x s1 (infer body)
+  return (t2, cs1 <> cs2)
 infer (Cond cond e1 e2) = do
-  tc <- infer cond
-  t1 <- infer e1
-  t2 <- infer e2
-  tell [(tc, TBool), (t1, t2)]
-  return t1 -- t1 = t2
+  (tc, cs0) <- infer cond
+  (t1, cs1) <- infer e1
+  (t2, cs2) <- infer e2
+  return (t1, (tc, TBool):(t1, t2):cs0 <> cs1 <> cs2)
 infer (Loop cond e) = do
-  tc <- infer cond
-  tell [(tc, TBool)]
-  infer e
-  return TUnit
+  (tc, cs1) <- infer cond
+  (_,  cs2) <- infer e
+  return (TUnit, (tc, TBool):cs1 <> cs2)
 infer (Value _) = error "Cannot happen"
 
 type Solver a = StateT (Type, [Constraint]) (Except TypeError) a
