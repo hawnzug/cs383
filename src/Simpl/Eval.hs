@@ -86,9 +86,9 @@ eval (Mod e1 e2) = evalArith mod e1 e2
 eval (AndAlso e1 e2) = evalBool (&&) e1 e2
 eval (OrElse e1 e2) = evalBool (||) e1 e2
 eval (Eq e1 e2) = evalEqual e1 e2
-eval (Neq e1 e2) = do
-  Vbool b <- evalEqual e1 e2
-  return $ Vbool (not b)
+eval (Neq e1 e2) = evalEqual e1 e2 >>= \case
+  Vbool b -> return $ Vbool (not b)
+  _ -> throwError ErrType
 eval (Less e1 e2) = evalComp (<) e1 e2
 eval (LessEq e1 e2) = evalComp (<=) e1 e2
 eval (Greater e1 e2) = evalComp (>) e1 e2
