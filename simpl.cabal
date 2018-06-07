@@ -13,36 +13,44 @@ build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
 
-library
+-- library
+--   hs-source-dirs:      src
+--   default-language:    Haskell2010
+--   build-depends:       base
+--                      , megaparsec
+--                      , text
+--                      , unbound-generics
+--                      , mtl
+--                      , vector
+--                      , containers
+--                      , recursion-schemes
+--   exposed-modules:     Simpl.Core
+--                      , Simpl.Parser
+--                      , Simpl.Eval
+--                      , Simpl.Infer
+
+-- executable simpl
+--   hs-source-dirs:      app
+--   main-is:             Main.hs
+--   build-depends:       base
+--                      , simpl
+--                      , directory
+--   default-language:    Haskell2010
+
+executable recur
   hs-source-dirs:      src
-  default-language:    Haskell2010
+  main-is:             Temp.hs
   build-depends:       base
-                     , megaparsec
-                     , text
-                     , unbound-generics
-                     , mtl
-                     , vector
-                     , containers
-  exposed-modules:     Simpl.Core
-                     , Simpl.Parser
-                     , Simpl.Eval
-                     , Simpl.Infer
-
-executable simpl
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  build-depends:       base
-                     , simpl
-                     , directory
+                     , recursion-schemes
   default-language:    Haskell2010
 
-test-suite simpl-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      tests
-  main-is:             Tests.hs
-  build-depends:       base
-                     , simpl
-                     , unbound-generics
-                     , tasty
-                     , tasty-hunit
-  default-language:    Haskell2010
+-- test-suite simpl-test
+--   type:                exitcode-stdio-1.0
+--   hs-source-dirs:      tests
+--   main-is:             Tests.hs
+--   build-depends:       base
+--                      , simpl
+--                      , unbound-generics
+--                      , tasty
+--                      , tasty-hunit
+--   default-language:    Haskell2010
