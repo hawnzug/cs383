@@ -33,6 +33,7 @@ executable simpl
   main-is:             Main.hs
   build-depends:       base
                      , simpl
+                     , directory
   default-language:    Haskell2010
 
 test-suite simpl-test

@@ -102,7 +102,30 @@ inferBinop e1 e2 to tr = do
   (t1, cs1) <- infer e1
   (t2, cs2) <- infer e2
   return (tr, (t1, to):(t2, to):cs1 <> cs2)
-  
+
+inferPre :: (MonadReader Env m,
+             MonadError TypeError m,
+             Fresh m) =>
+            NameE -> m (Type, [Constraint])
+inferPre p | p == s2n "iszero" = return (TArr TInt TBool, [])
+inferPre p | p == s2n "succ" = return (TArr TInt TInt, [])
+inferPre p | p == s2n "pred" = return (TArr TInt TInt, [])
+inferPre p | p == s2n "fst" = do
+  t1 <- freshTV
+  t2 <- freshTV
+  return ((TPair t1 t2) `TArr` t1, [])
+inferPre p | p == s2n "snd" = do
+  t1 <- freshTV
+  t2 <- freshTV
+  return ((TPair t1 t2) `TArr` t2, [])
+inferPre p | p == s2n "hd" = do
+  t <- freshTV
+  return ((TList t) `TArr` t, [])
+inferPre p | p == s2n "tl" = do
+  t <- freshTV
+  return ((TList t) `TArr` (TList t), [])
+inferPre _ | otherwise = throwError UnboundedVar
+
 infer :: (MonadReader Env m,
           MonadError TypeError m,
           Fresh m) =>
@@ -120,8 +143,8 @@ infer (BoolLit _) = return (TBool, [])
 infer (AndAlso e1 e2) = inferBinop e1 e2 TBool TBool
 infer (OrElse e1 e2) = inferBinop e1 e2 TBool TBool
 -- TODO Eq/Neq forall type
-infer (Eq e1 e2) = inferBinop e1 e2 TInt TBool
-infer (Neq e1 e2) = inferBinop e1 e2 TInt TBool
+infer (Eq e1 e2) = freshTV >>= \t -> inferBinop e1 e2 t TBool
+infer (Neq e1 e2) = freshTV >>= \t -> inferBinop e1 e2 t TBool
 infer (Less e1 e2) = inferBinop e1 e2 TInt TBool
 infer (LessEq e1 e2) = inferBinop e1 e2 TInt TBool
 infer (Greater e1 e2) = inferBinop e1 e2 TInt TBool
@@ -167,7 +190,7 @@ infer (Var v) = do
   Env env <- ask
   case Map.lookup v env of
     Just scheme -> instantiate scheme
-    Nothing -> throwError UnboundedVar
+    Nothing -> inferPre v
 infer (Pair e1 e2) = do
   (t1, cs1) <- infer e1
   (t2, cs2) <- infer e2
