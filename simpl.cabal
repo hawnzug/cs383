@@ -1,46 +1,72 @@
-name:                simpl
-version:             0.1.0.0
--- synopsis:
--- description:
-homepage:            https://github.com/hawnzug/simpl#readme
-license:             BSD3
-license-file:        LICENSE
-author:              hawnzug
-maintainer:          hawnzug@gmail.com
-copyright:           2018 hawnzug
-category:            Compiler
-build-type:          Simple
-cabal-version:       >=1.10
-extra-source-files:  README.md
+-- This file has been generated from package.yaml by hpack version 0.28.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 344eca8a8b456b2fa57a32760b6d14470c17857dd37cb72950b99e91de3226eb
+
+name:           simpl
+version:        0.1.0.0
+category:       Compiler
+homepage:       https://github.com/hawnzug/simpl#readme
+bug-reports:    https://github.com/hawnzug/simpl/issues
+author:         hawnzug
+maintainer:     hawnzug@gmail.com
+copyright:      2018 hawnzug
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+extra-source-files:
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/hawnzug/simpl
 
 library
-  hs-source-dirs:      src
-  default-language:    Haskell2010
-  build-depends:       base
-                     , megaparsec
-                     , text
-                     , mtl
-                     , vector
-                     , containers
-  exposed-modules:     Simpl.Core
-                     , Simpl.Parser
-                     , Simpl.Eval
-                     , Simpl.Infer
+  exposed-modules:
+      Simpl.Core
+      Simpl.Eval
+      Simpl.Infer
+      Simpl.Parser
+  other-modules:
+      Paths_simpl
+  hs-source-dirs:
+      src
+  build-depends:
+      base
+    , containers
+    , megaparsec
+    , mtl
+    , text
+    , vector
+  default-language: Haskell2010
 
 executable simpl
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  build-depends:       base
-                     , simpl
-                     , directory
-  default-language:    Haskell2010
+  main-is: Main.hs
+  other-modules:
+      Paths_simpl
+  hs-source-dirs:
+      app
+  build-depends:
+      base
+    , optparse-applicative
+    , simpl
+  default-language: Haskell2010
 
 test-suite simpl-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      tests
-  main-is:             Tests.hs
-  build-depends:       base
-                     , simpl
-                     , tasty
-                     , tasty-hunit
-  default-language:    Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  other-modules:
+      Eval
+      Example
+      Parser
+      Paths_simpl
+  hs-source-dirs:
+      tests
+  build-depends:
+      base
+    , simpl
+    , tasty
+    , tasty-hunit
+  default-language: Haskell2010

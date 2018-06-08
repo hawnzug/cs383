@@ -28,6 +28,7 @@ data Type
   | TArr Type Type
   | TList Type
   | TRef Type
+  deriving (Eq)
 
 instance Show Type where
   showsPrec _ TInt = showString "Int"

@@ -1,0 +1,39 @@
+name:                simpl
+version:             0.1.0.0
+github:              hawnzug/simpl
+license:             BSD3
+license-file:        LICENSE
+author:              hawnzug
+maintainer:          hawnzug@gmail.com
+copyright:           2018 hawnzug
+category:            Compiler
+extra-source-files:  README.md
+
+dependencies:
+  - base
+
+library:
+  source-dirs: src
+  dependencies:
+    - megaparsec
+    - text
+    - mtl
+    - vector
+    - containers
+
+executables:
+  simpl:
+    source-dirs:      app
+    main:             Main.hs
+    dependencies:
+      - simpl
+      - optparse-applicative
+
+tests:
+  simpl-test:
+    source-dirs:      tests
+    main:             Tests.hs
+    dependencies:
+      - simpl
+      - tasty
+      - tasty-hunit
