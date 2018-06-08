@@ -1,15 +1,6 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-
 module Simpl.Core where
 
-import Data.Vector (Vector)
-import Unbound.Generics.LocallyNameless
-import GHC.Generics (Generic)
-import Data.Typeable (Typeable)
-
-type NameE = Name Expr
+type Name = String
 
 data Expr
 
@@ -39,44 +30,16 @@ data Expr
   | Assign Expr Expr
   | Deref Expr
 
-  | Fn (Bind NameE Expr)
-  | Rec (Bind NameE Expr)
+  | Fn Name Expr
+  | Rec Name Expr
   | App Expr Expr
 
   | Unit
-  | Var NameE
+  | Var Name
   | Pair Expr Expr
 
   | Seq Expr Expr
-  | Let (Bind (NameE, Embed Expr) Expr)
+  | Let Name Expr Expr
   | Cond Expr Expr Expr
   | Loop Expr Expr
-
-  | Value Value
-  deriving (Show, Generic, Typeable)
-
-data Value
-  = Vint  Integer
-  | Vpre  NameE
-  | Vunit
-  | Vbool Bool
-  | Vref  Address
-  | Vpair Value Value
-  | Vlist [Value]
-  | Vfn   (Bind NameE Expr)
-  | Vrec  (Bind NameE Expr)
-  deriving (Show, Generic, Typeable)
-
-instance Alpha Value
-
-instance Subst Expr Value where
-  isvar _ = Nothing
-
-instance Alpha Expr
-
-instance Subst Expr Expr where
-  isvar (Var x) = Just (SubstName x)
-  isvar _       = Nothing
-
-type Address = Int
-type Memory = Vector Value
+  deriving (Show, Eq)

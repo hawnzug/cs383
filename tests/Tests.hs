@@ -4,9 +4,7 @@ import Test.Tasty.HUnit
 
 import Simpl.Parser (parseMb)
 import Simpl.Core
-import Simpl.Eval (runEval)
-
-import Unbound.Generics.LocallyNameless (s2n, aeq)
+import Simpl.Eval (runEval, Value(..))
 
 main = defaultMain $ testGroup "tests"
   [parserTests, evalTests]
@@ -40,12 +38,12 @@ parserTests = testGroup "Parser tests"
         b = v "b"
         c = v "c"
         d = v "d"
-        v = Var . s2n
+        v = Var
         t = BoolLit True
         f = BoolLit False
         parseEq input expect = case parseMb input of
-          Just e -> aeq e expect @? "aeq"
-          _ -> assertFailure "cannot parse"
+                                 Just e -> e == expect @? "aeq"
+                                 _ -> assertFailure "cannot parse"
 
 evalTests = testGroup "Eval tests"
   [ testCase "Reference" $
@@ -67,5 +65,5 @@ evalTests = testGroup "Eval tests"
   where evalEq input expect = case parseMb input of
           Just e -> case runEval e of
             Left err -> assertFailure (show err)
-            Right v -> aeq v expect @? "aeq"
+            Right v -> v == expect @? "aeq"
           _ -> assertFailure "cannot parse"

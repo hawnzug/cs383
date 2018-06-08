@@ -8,17 +8,14 @@ import Text.Megaparsec.Expr
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as Lex
 
-import Unbound.Generics.LocallyNameless as Unbound
-
 import Simpl.Core
 
 _func f c = do
   symbol f
-  n <- identifier
+  name <- identifier
   symbol "=>"
-  e <- expr
-  let name = Unbound.s2n n
-  return $ c (Unbound.bind name e)
+  body <- expr
+  return $ c name body
 
 _cond = do
   symbol "if" 
@@ -37,9 +34,7 @@ _let = do
   symbol "in"
   e2 <- expr
   symbol "end"
-  let name = Unbound.s2n n
-      pattern = (name, Unbound.embed e1)
-  return (Let (Unbound.bind pattern e2))
+  return $ Let n e1 e2
 
 _loop = do
   symbol "while"
@@ -82,7 +77,7 @@ aexpr = (choice
   [ try _pair
   , try (Unit <$ symbol "()")
   , parens expr
-  , (Var . Unbound.s2n) <$> identifier
+  , Var <$> identifier
   , IntLit <$> integer
   , BoolLit True <$ symbol "true"
   , BoolLit False <$ symbol "false"

@@ -19,7 +19,6 @@ library
   build-depends:       base
                      , megaparsec
                      , text
-                     , unbound-generics
                      , mtl
                      , vector
                      , containers
@@ -42,7 +41,6 @@ test-suite simpl-test
   main-is:             Tests.hs
   build-depends:       base
                      , simpl
-                     , unbound-generics
                      , tasty
                      , tasty-hunit
   default-language:    Haskell2010

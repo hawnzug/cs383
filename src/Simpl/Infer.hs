@@ -7,10 +7,6 @@
 
 module Simpl.Infer where
 
-import Unbound.Generics.LocallyNameless
-import Unbound.Generics.LocallyNameless.Internal.Fold (foldMapOf, toListOf)
-import GHC.Generics (Generic)
-import Data.Typeable (Typeable)
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Monad.Reader
@@ -21,7 +17,7 @@ import Data.List (union, (\\))
 
 import Simpl.Core
 
-type NameT = Name Type
+type NameT = Int
 
 data Type
   = TInt
@@ -32,13 +28,12 @@ data Type
   | TArr Type Type
   | TList Type
   | TRef Type
-  deriving (Generic, Typeable)
 
 instance Show Type where
   showsPrec _ TInt = showString "Int"
   showsPrec _ TBool = showString "Bool"
   showsPrec _ TUnit = showString "()"
-  showsPrec _ (TVar n) = showString $ show n
+  showsPrec _ (TVar n) = showString "t" . showString (show n)
   showsPrec d (TRef t) = showString "ref" . showsPrec d t
   showsPrec d (TPair t1 t2) =
     showString "(" .
@@ -53,21 +48,50 @@ instance Show Type where
     showsPrec d t .
     showString "]"
 
-newtype Scheme = Scheme (Bind [NameT] (Type, [Constraint])) deriving (Show, Generic, Typeable)
-newtype Env = Env (Map NameE Scheme)
+class Alpha a where
+  freeVars :: a -> [NameT]
+  subst :: NameT -> Type -> a -> a
 
-instance Alpha Type
-instance Alpha Scheme
+type Constraint = (Type, Type)
+data Scheme = Scheme [NameT] Type [Constraint] deriving (Show)
+type Env = Map Name Scheme
 
-instance Subst Type Type where
-  isvar (TVar x) = Just (SubstName x)
-  isvar _ = Nothing
+instance Alpha Type where
+  freeVars (TVar n) = [n]
+  freeVars (TPair x y) = freeVars x ++ freeVars y
+  freeVars (TArr x y) = freeVars x ++ freeVars y
+  freeVars (TList x) = freeVars x
+  freeVars (TRef x) = freeVars x
+  freeVars _ = []
+
+  subst m t (TVar n) = if n == m then t else TVar n
+  subst m t (TPair x y) = TPair (subst m t x) (subst m t y)
+  subst m t (TArr x y) = TArr (subst m t x) (subst m t y)
+  subst m t (TList x) = TList (subst m t x)
+  subst m t (TRef x) = TRef (subst m t x)
+  subst _ _ x = x
+
+instance (Alpha a, Alpha b) => Alpha (a, b) where
+  freeVars (x, y) = freeVars x ++ freeVars y
+
+  subst m t (x, y) = (subst m t x, subst m t y)
+
+instance Alpha a => Alpha [a] where
+  freeVars = concatMap freeVars
+
+  subst m t xs = subst m t <$> xs
+
+instance Alpha Scheme where
+  freeVars (Scheme ns t cs) = (freeVars t `union` freeVars cs) \\ ns
+
+  subst m u s@(Scheme ns t cs) = if (elem m ns) then s else
+    let t' = subst m u t
+        cs' = subst m u cs
+    in Scheme ns t' cs'
+    
 
 occurs :: NameT -> Type -> Bool
-occurs x t = getAny $ foldMapOf fv (Any . (== x)) t
-
-freeVars :: (Alpha a) => a -> [NameT]
-freeVars = toListOf fv
+occurs x t = elem x $ freeVars t
 
 data TypeError
   = TypeError
@@ -76,25 +100,29 @@ data TypeError
   | InfiniteType NameT Type
   deriving Show
 
-type Constraint = (Type, Type)
-type Infer a = ReaderT Env (ExceptT TypeError FreshM) a
+type Infer a = ReaderT Env (ExceptT TypeError (State NameT)) a
 
 runInfer :: Infer a -> Either TypeError a
-runInfer i = runFreshM $ runExceptT $ runReaderT i $ Env Map.empty
+runInfer i = flip evalState 0 $ runExceptT $ runReaderT i Map.empty
 
-envInsert :: (MonadReader Env m) => NameE -> Scheme -> m a -> m a
-envInsert x s m = do
-  let f (Env e) = Env $ Map.insert x s e
-  local f m
+envInsert :: (MonadReader Env m) => Name -> Scheme -> m a -> m a
+envInsert x s m = local (Map.insert x s) m
 
-freshTV :: (Fresh m) => m Type
-freshTV = TVar <$> (fresh $ s2n "t")
+freshTV :: (MonadState NameT m) => m Type
+freshTV = do
+  n <- get
+  put (n+1)
+  return $ TVar n
 
-instantiate :: (Fresh m) => Scheme -> m (Type, [Constraint])
-instantiate (Scheme bd) = snd <$> unbind bd
+instantiate :: (MonadState NameT m) => Scheme -> m (Type, [Constraint])
+instantiate (Scheme ns t cs) = foldM f (t, cs) ns
+  where
+    f (t, cs) n = do
+      tv <- freshTV
+      return $ subst n tv (t, cs)
 
 generalize :: Env -> [Constraint] -> Type -> Scheme
-generalize (Env env) cs t = Scheme (bind ns (t, cs'))
+generalize env cs t = Scheme ns t cs'
   where ns = (freeVars t `union` freeVars cs) \\ freeVars (Map.elems env)
         cs' = filter (\c -> any (`elem` freeVars c) ns) cs
 
@@ -105,30 +133,30 @@ inferBinop e1 e2 to tr = do
 
 inferPre :: (MonadReader Env m,
              MonadError TypeError m,
-             Fresh m) =>
-            NameE -> m (Type, [Constraint])
-inferPre p | p == s2n "iszero" = return (TArr TInt TBool, [])
-inferPre p | p == s2n "succ" = return (TArr TInt TInt, [])
-inferPre p | p == s2n "pred" = return (TArr TInt TInt, [])
-inferPre p | p == s2n "fst" = do
+             MonadState NameT m) =>
+            Name -> m (Type, [Constraint])
+inferPre "iszero" = return (TArr TInt TBool, [])
+inferPre "succ" = return (TArr TInt TInt, [])
+inferPre "pred" = return (TArr TInt TInt, [])
+inferPre "fst" = do
   t1 <- freshTV
   t2 <- freshTV
   return ((TPair t1 t2) `TArr` t1, [])
-inferPre p | p == s2n "snd" = do
+inferPre "snd" = do
   t1 <- freshTV
   t2 <- freshTV
   return ((TPair t1 t2) `TArr` t2, [])
-inferPre p | p == s2n "hd" = do
+inferPre "hd" = do
   t <- freshTV
   return ((TList t) `TArr` t, [])
-inferPre p | p == s2n "tl" = do
+inferPre "tl" = do
   t <- freshTV
   return ((TList t) `TArr` (TList t), [])
-inferPre _ | otherwise = throwError UnboundedVar
+inferPre _ = throwError UnboundedVar
 
 infer :: (MonadReader Env m,
           MonadError TypeError m,
-          Fresh m) =>
+          MonadState NameT m) =>
          Expr -> m (Type, [Constraint])
 infer (IntLit _) = return (TInt, [])
 infer (Neg e) = do
@@ -170,15 +198,13 @@ infer (Deref e) = do
   (reft, cs) <- infer e
   t <- freshTV
   return (t, (reft, TRef t):cs)
-infer (Fn bd) = do
-  (v, body) <- unbind bd
+infer (Fn v body) = do
   tv <- freshTV
-  (tbody, cs) <- envInsert v (Scheme (bind [] (tv, []))) (infer body)
+  (tbody, cs) <- envInsert v (Scheme [] tv []) (infer body)
   return $ (TArr tv tbody, cs)
-infer (Rec bd) = do
-  (v, body) <- unbind bd
+infer (Rec v body) = do
   tv <- freshTV
-  (tbody, cs) <- envInsert v (Scheme (bind [] (tv, []))) (infer body)
+  (tbody, cs) <- envInsert v (Scheme [] tv []) (infer body)
   return (tbody, (tv, tbody):cs)
 infer (App e1 e2) = do
   (t1, cs1) <- infer e1
@@ -187,7 +213,7 @@ infer (App e1 e2) = do
   return (tv, (t1, t2 `TArr` tv):cs1 <> cs2)
 infer Unit = return (TUnit, [])
 infer (Var v) = do
-  Env env <- ask
+  env <- ask
   case Map.lookup v env of
     Just scheme -> instantiate scheme
     Nothing -> inferPre v
@@ -199,10 +225,9 @@ infer (Seq e1 e2) = do
   (t1, cs1) <- infer e1
   (t2, cs2) <- infer e2
   return (t2, cs1 <> cs2)
-infer (Let bd) = do
-  ((x, e), body) <- unbind bd
+infer (Let x e body) = do
   env <- ask
-  (t1, cs1) <- infer (unembed e)
+  (t1, cs1) <- infer e
   let s1 = generalize env cs1 t1
   (t2, cs2) <- envInsert x s1 (infer body)
   return (t2, cs1 <> cs2)
@@ -215,7 +240,6 @@ infer (Loop cond e) = do
   (tc, cs1) <- infer cond
   (_,  cs2) <- infer e
   return (TUnit, (tc, TBool):cs1 <> cs2)
-infer (Value _) = error "Cannot happen"
 
 type Solver a = StateT (Type, [Constraint]) (Except TypeError) a
 

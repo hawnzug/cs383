@@ -1,16 +1,13 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-
 module Simpl.Eval where
 
-import Unbound.Generics.LocallyNameless
-import qualified Unbound.Generics.LocallyNameless.Name as UnbName
 import Control.Monad.Except
-import qualified Control.Monad.State as St
+import Control.Monad.State
+import Control.Monad.Reader
 import qualified Data.Vector as V
+import Data.Vector (Vector)
+import qualified Data.Map as Map
 import Simpl.Core
 
 data Error
@@ -20,56 +17,59 @@ data Error
   | ErrList
   deriving (Show)
 
-type Env = (Integer, Memory)
+preTerms :: [Name]
+preTerms = ["fst", "snd", "hd", "tl", "iszero", "pred", "succ"]
 
-newtype MyFresh s a = MyFresh { unMyFresh :: St.State s a }
-  deriving (Functor, Applicative, Monad)
+data Value
+  = Vint  Integer
+  | Vpre  Name
+  | Vunit
+  | Vbool Bool
+  | Vref  Address
+  | Vpair Value Value
+  | Vlist [Value]
+  | Vfn   Name Expr Env
+  | Vrec  Name Expr Env
+  deriving (Eq)
 
-runMyFresh (MyFresh st) = St.evalState st (0, V.empty)
+instance Show Value where
+  show (Vint n) = show n
+  show (Vbool True) = "true"
+  show (Vbool False) = "false"
+  show Vunit = "unit"
+  show (Vpair x y) = "pair@" ++ show x ++ "@" ++ show y
+  show (Vfn _ _ _) = "fun"
 
-instance St.MonadState s (MyFresh s) where
-  get = MyFresh $ St.get
-  put s = MyFresh $ St.put s
+type Address = Int
+type Memory = Vector Value
 
-instance Fresh (MyFresh Env) where
-  fresh (UnbName.Fn s _) = MyFresh $ do
-    (n, m) <- St.get
-    St.put $! (n+1, m)
-    return $ (UnbName.Fn s n)
-  fresh nm@(UnbName.Bn {}) = return nm
-
-allocate :: St.MonadState Env m => Value -> m Address
+allocate :: MonadState Memory m => Value -> m Address
 allocate v = do
-  (n, m) <- St.get
-  let m' = V.snoc m v
-  St.put $! (n, m')
+  m <- get
+  put $! V.snoc m v
   return $ V.length m
 
-assign :: St.MonadState Env m => Address -> Value -> m ()
-assign addr v = do
-  (n, m) <- St.get
-  let m' = m V.// [(addr, v)]
-  St.put $! (n, m')
-  return ()
+assign :: MonadState Memory m => Address -> Value -> m ()
+assign addr v = modify (\m -> m V.// [(addr, v)])
 
-deref :: St.MonadState Env m => Address -> m Value
-deref addr = do
-  (_, m) <- St.get
-  return $ m V.! addr
+deref :: MonadState Memory m => Address -> m Value
+deref addr = gets (\m -> m V.! addr)
+type Env = Map.Map Name Value
 
-preTerms :: [NameE]
-preTerms = s2n <$>
-  [ "fst", "snd", "hd", "tl"
-  , "iszero", "pred", "succ"
-  ]
-
-eval :: Expr -> ExceptT Error (MyFresh Env) Value
-eval (Value v) = return v
-eval (Var n) = if elem n preTerms
-  then return $ Vpre n
-  else throwError ErrUnbounded 
-eval (Fn b) = return $ Vfn b
-eval (Rec b) = return $ Vrec b
+eval :: ( MonadReader Env m
+        , MonadError Error m
+        , MonadState Memory m
+        ) => Expr -> m Value
+eval (Var n) = do
+  env <- ask
+  case Map.lookup n env of
+    Just (Vrec n e env') -> local (const env') (eval $ Rec n e)
+    Just v -> return v
+    _ -> if elem n preTerms
+         then return $ Vpre n
+         else throwError ErrUnbounded 
+eval (Fn n e) = ask >>= return . Vfn n e
+eval (Rec n e) = local (\env -> Map.insert n (Vrec n e env) env) (eval e)
 eval (IntLit n) = return (Vint n)
 eval (BoolLit b) = return (Vbool b)
 eval (Neg e) = eval e >>= \case
@@ -98,20 +98,13 @@ eval (App e1 e2) = do
   v1 <- eval e1
   v2 <- eval e2
   case v1 of
-    Vfn bnd -> do
-      (x, body) <- unbind bnd
-      eval (subst x (Value v2) body)
-    rec@(Vrec bnd) -> do
-      (f, body) <- unbind bnd
-      let f' = subst f (Value rec) body
-      eval (App f' (Value v2))
+    Vfn  x body env -> local (const $ Map.insert x v2 env) (eval body)
     Vpre pre -> evalPre pre v2
     _ -> throwError ErrApp
 
-eval (Let bnd) = do
-  ((x, e), body) <- unbind bnd
-  v <- eval (unembed e)
-  eval (subst x (Value v) body)
+eval (Let x e body) = do
+  v <- eval e
+  local (Map.insert x v) (eval body)
 
 eval (Cond cond e1 e2) = do
   eval cond >>= \case
@@ -200,29 +193,17 @@ evalEq v1 v2 =
       return $ Vbool $ b1 && b2
     _ -> return $ Vbool False
 
-evalPre :: NameE -> Value -> ExceptT Error (MyFresh Env) Value
-evalPre pre v | pre == s2n "iszero" = case v of
-  Vint n -> return $ Vbool (n == 0)
-  _ -> throwError ErrType
-evalPre pre v | pre == s2n "succ" = case v of
-  Vint n -> return $ Vint (n + 1)
-  _ -> throwError ErrType
-evalPre pre v | pre == s2n "pred" = case v of
-  Vint n -> return $ Vint (n - 1)
-  _ -> throwError ErrType
-evalPre pre v | pre == s2n "fst" = case v of
-  Vpair v1 _ -> return v1
-  _ -> throwError ErrType
-evalPre pre v | pre == s2n "snd" = case v of
-  Vpair _ v2 -> return v2
-  _ -> throwError ErrType
-evalPre pre v | pre == s2n "hd" = case v of
-  Vlist [] -> throwError ErrList
-  Vlist (h:_) -> return h
-  _ -> throwError ErrType
-evalPre pre v | pre == s2n "tl" = case v of
-  Vlist [] -> throwError ErrList
-  Vlist (_:t) -> return (Vlist t)
-  _ -> throwError ErrType
+evalPre "iszero" (Vint n) = return $ Vbool (n == 0)
+evalPre "succ" (Vint n) = return $ Vint (n + 1)
+evalPre "pred" (Vint n) = return $ Vint (n - 1)
+evalPre "fst" (Vpair v _) = return v
+evalPre "snd" (Vpair _ v) = return v
+evalPre "hd" (Vlist []) = throwError ErrList
+evalPre "hd" (Vlist (h:_)) = return h
+evalPre "tl" (Vlist []) = throwError ErrList
+evalPre "tl" (Vlist (_:t)) = return $ Vlist t
+evalPre _ _ = throwError ErrType
 
-runEval expr = runMyFresh $ runExceptT (eval expr)
+runEval :: Expr -> Either Error Value
+runEval expr =
+  flip evalStateT V.empty $ runReaderT (eval expr) Map.empty
