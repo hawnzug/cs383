@@ -19,11 +19,11 @@ runProgram :: FilePath -> IO ()
 runProgram filename = do
   input <- readFile filename
   case parseProg input "expr.txt" of
-    Left err -> putStr err
+    Left err -> putStrLn "syntax error"
     Right expr -> case typeInfer expr of
-      Left err -> print err
+      Left err -> putStrLn "type error"
       Right t -> do
-        print t
+        -- print t
         case runEval expr of
-          Left err -> print err
+          Left err -> putStrLn "runtime error"
           Right v -> print v

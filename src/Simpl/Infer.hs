@@ -12,7 +12,7 @@ module Simpl.Infer where
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Monad.Reader
-import Data.Monoid (Any(..), (<>))
+import Data.Monoid ((<>))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.List (union, (\\))
@@ -37,7 +37,7 @@ instance Show Type where
   showsPrec _ TBool = showString "Bool"
   showsPrec _ TUnit = showString "()"
   showsPrec _ (TVar n) = showString "t" . showString (show n)
-  showsPrec d (TRef t) = showString "ref" . showsPrec d t
+  showsPrec d (TRef t) = showString "ref@" . showsPrec d t
   showsPrec d (TPair t1 t2) =
     showString "(" .
     showsPrec d t1 .
@@ -120,15 +120,20 @@ freshTV = do
 instantiate :: (MonadState NameT m) => Scheme -> m (Type, [Constraint])
 instantiate (Scheme ns t cs) = foldM f (t, cs) ns
   where
-    f (t, cs) n = do
+    f (t', cs') n = do
       tv <- freshTV
-      return $ subst n tv (t, cs)
+      return $ subst n tv (t', cs')
 
 generalize :: Env -> [Constraint] -> Type -> Scheme
 generalize env cs t = Scheme ns t cs'
   where ns = (freeVars t `union` freeVars cs) \\ freeVars (Map.elems env)
         cs' = filter (\c -> any (`elem` freeVars c) ns) cs
 
+
+inferBinop :: ( MonadState NameT m
+              , MonadError TypeError m
+              , MonadReader Env m
+              ) => Expr -> Expr -> Type -> a -> m (a, [(Type, Type)])
 inferBinop e1 e2 to tr = do
   (t1, cs1) <- infer e1
   (t2, cs2) <- infer e2
@@ -224,7 +229,7 @@ infer (Pair e1 e2) = do
   (t2, cs2) <- infer e2
   return (TPair t1 t2, cs1 <> cs2)
 infer (Seq e1 e2) = do
-  (t1, cs1) <- infer e1
+  (_, cs1) <- infer e1
   (t2, cs2) <- infer e2
   return (t2, cs1 <> cs2)
 infer (Let x e body) = do
@@ -238,7 +243,7 @@ infer (LetRec binds body) = do
   let newenv env = foldl f env tvs
       f e ((name, _), tv) = Map.insert name (Scheme [] tv []) e
   local newenv $ do
-    let inferOne ((name, e), tv) = do
+    let inferOne ((_, e), tv) = do
           (t, cs) <- infer e
           return $ (tv, t):cs
     css <- forM tvs inferOne

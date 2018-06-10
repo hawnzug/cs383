@@ -17,9 +17,8 @@ import Simpl.Core
 
 data Error
   = ErrUnbounded
-  | ErrType
   | ErrApp
-  | ErrList
+  | ErrEmptyList
   deriving (Show)
 
 preTerms :: [Name]
@@ -31,6 +30,7 @@ data Value
   | Vunit
   | Vbool Bool
   | Vref  Address
+  | Vrefshow Value
   | Vpair Value Value
   | Vlist [Value]
   | Vfn   Name Expr Env
@@ -45,6 +45,10 @@ instance Show Value where
   show Vunit = "unit"
   show (Vpair x y) = "pair@" ++ show x ++ "@" ++ show y
   show (Vfn _ _ _) = "fun"
+  show (Vlist []) = "nil"
+  show (Vlist vs) = "list@" ++ show (length vs)
+  show (Vrefshow v) = "ref@" ++ show v
+  show _ = error "cannot happen"
 
 type Address = Int
 data Memory = Memory
@@ -85,7 +89,8 @@ mark :: Value -> IntSet
 mark (Vref a) = IntSet.singleton a
 mark (Vpair x y) = IntSet.union (mark x) (mark y)
 mark (Vlist xs) = IntSet.unions (mark <$> xs)
--- TODO Vfn and Vrec
+mark (Vfn _ _ env) = markEnv env
+mark (Vrec _ _ env) = markEnv env
 mark _ = IntSet.empty
 
 assign :: MonadState Memory m => Address -> Value -> m ()
@@ -102,7 +107,7 @@ eval :: ( MonadReader Env m
         ) => Expr -> m Value
 eval (Var n) = do
   reader (Map.lookup n) >>= \case
-    Just (Vrec n e env') -> local (const env') (eval $ Rec n e)
+    Just (Vrec n' e env') -> local (const env') (eval $ Rec n' e)
     Just (Vdelay e) -> eval e
     Just v -> return v
     _ -> if elem n preTerms
@@ -114,10 +119,8 @@ eval (IntLit n) = return (Vint n)
 eval (BoolLit b) = return (Vbool b)
 eval (Neg e) = eval e >>= \case
   Vint n -> return (Vint $ negate n)
-  _ -> throwError ErrType
 eval (Not e) = eval e >>= \case
   Vbool b -> return (Vbool $ not b)
-  _ -> throwError ErrType
 eval (Add e1 e2) = evalArith (+) e1 e2
 eval (Sub e1 e2) = evalArith (-) e1 e2
 eval (Mult e1 e2) = evalArith (*) e1 e2
@@ -128,7 +131,6 @@ eval (OrElse e1 e2) = evalBool (||) e1 e2
 eval (Eq e1 e2) = evalEqual e1 e2
 eval (Neq e1 e2) = evalEqual e1 e2 >>= \case
   Vbool b -> return $ Vbool (not b)
-  _ -> throwError ErrType
 eval (Less e1 e2) = evalComp (<) e1 e2
 eval (LessEq e1 e2) = evalComp (<=) e1 e2
 eval (Greater e1 e2) = evalComp (>) e1 e2
@@ -154,7 +156,6 @@ eval (Cond cond e1 e2) = do
   eval cond >>= \case
     Vbool True  -> eval e1
     Vbool False -> eval e2
-    _ -> throwError ErrType
 
 eval e@(Loop cond body) = do
   eval cond >>= \case
@@ -162,64 +163,75 @@ eval e@(Loop cond body) = do
       eval body
       eval e
     Vbool False -> return Vunit
-    _ -> throwError ErrType
 
 eval (Ref e) = eval e >>= allocate >>= return . Vref
+eval Unit = return Vunit
 
 eval (Deref e) = do
-  v <- eval e
-  case v of
-    Vref addr -> deref addr
-    _ -> throwError ErrType
+  Vref addr <- eval e
+  deref addr
 
 eval (Assign e1 e2) = do
-  v1 <- eval e1
+  Vref addr <- eval e1
   v2 <- eval e2
-  case v1 of
-    Vref addr -> assign addr v2 >> return Vunit
-    _ -> throwError ErrType
+  assign addr v2
+  return Vunit
 
 eval (Seq e1 e2) = eval e1 >> eval e2
 eval (Pair e1 e2) = Vpair <$> eval e1 <*> eval e2
 eval Nil = return $ Vlist []
 eval (Cons e1 e2) = do
   v1 <- eval e1
-  v2 <- eval e2
-  case v2 of
-    Vlist l -> return $ Vlist (v1:l)
-    _ -> throwError ErrType
+  Vlist l <- eval e2
+  return $ Vlist (v1:l)
 
+
+evalArith :: ( MonadState Memory m
+             , MonadError Error m
+             , MonadReader Env m
+             ) => (Integer -> Integer -> Integer) -> Expr -> Expr -> m Value
 evalArith op e1 e2 = do
-  v1 <- eval e1
-  v2 <- eval e2
-  case (v1, v2) of
-    (Vint n1, Vint n2) -> return $ Vint (op n1 n2)
-    _ -> throwError ErrType
+  Vint n1 <- eval e1
+  Vint n2 <- eval e2
+  return $ Vint (op n1 n2)
+
+evalComp :: ( MonadState Memory m
+            , MonadError Error m
+            , MonadReader Env m
+            ) => (Integer -> Integer -> Bool) -> Expr -> Expr -> m Value
 evalComp op e1 e2 = do
-  v1 <- eval e1
-  v2 <- eval e2
-  case (v1, v2) of
-    (Vint n1, Vint n2) -> return $ Vbool (op n1 n2)
-    _ -> throwError ErrType
+  Vint n1 <- eval e1
+  Vint n2 <- eval e2
+  return $ Vbool (op n1 n2)
+
+evalBool :: ( MonadState Memory m
+            , MonadError Error m
+            , MonadReader Env m
+            ) => (Bool -> Bool -> Bool) -> Expr -> Expr -> m Value
 evalBool op e1 e2 = do
-  v1 <- eval e1
-  v2 <- eval e2
-  case (v1, v2) of
-    (Vbool n1, Vbool n2) -> return $ Vbool (op n1 n2)
-    _ -> throwError ErrType
+  Vbool b1 <- eval e1
+  Vbool b2 <- eval e2
+  return $ Vbool (op b1 b2)
+
+evalEqual :: ( MonadState Memory m
+             , MonadError Error m
+             , MonadReader Env m
+             ) => Expr -> Expr -> m Value
 evalEqual e1 e2 = do
   v1 <- eval e1
   v2 <- eval e2
   evalEq v1 v2
+
+evalEq :: MonadState Memory m => Value -> Value -> m Value
 evalEq v1 v2 =
   case (v1, v2) of
     (Vunit, Vunit) -> return $ Vbool True
     (Vint x, Vint y) -> return $ Vbool $ x == y
     (Vbool x, Vbool y) -> return $ Vbool $ x == y
     (Vref x, Vref y) -> do
-      v1 <- deref x
-      v2 <- deref y
-      evalEq v1 v2
+      vx <- deref x
+      vy <- deref y
+      evalEq vx vy
     (Vlist x, Vlist y) ->
       if length x == length y
       then do
@@ -234,18 +246,26 @@ evalEq v1 v2 =
       return $ Vbool $ b1 && b2
     _ -> return $ Vbool False
 
+evalPre :: MonadError Error m => Name -> Value -> m Value
 evalPre "iszero" (Vint n) = return $ Vbool (n == 0)
 evalPre "succ" (Vint n) = return $ Vint (n + 1)
 evalPre "pred" (Vint n) = return $ Vint (n - 1)
 evalPre "fst" (Vpair v _) = return v
 evalPre "snd" (Vpair _ v) = return v
-evalPre "hd" (Vlist []) = throwError ErrList
+evalPre "hd" (Vlist []) = throwError ErrEmptyList
 evalPre "hd" (Vlist (h:_)) = return h
-evalPre "tl" (Vlist []) = throwError ErrList
+evalPre "tl" (Vlist []) = throwError ErrEmptyList
 evalPre "tl" (Vlist (_:t)) = return $ Vlist t
-evalPre _ _ = throwError ErrType
+evalPre _ _ = throwError ErrUnbounded
+
+evalRef :: MonadState Memory f => Value -> f Value
+evalRef (Vref addr) = Vrefshow <$> loop addr
+  where loop add = deref add >>= \case
+          Vref a -> loop a
+          v -> return v
+evalRef v = return v
 
 runEval :: Expr -> Either Error Value
 runEval expr =
   flip evalStateT (Memory IntMap.empty [0..] 0) $
-    runReaderT (eval expr) Map.empty
+    runReaderT (eval expr >>= evalRef) Map.empty

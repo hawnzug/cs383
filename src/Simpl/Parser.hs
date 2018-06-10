@@ -10,6 +10,7 @@ import qualified Text.Megaparsec.Char.Lexer as Lex
 
 import Simpl.Core
 
+_func :: String -> (String -> Expr -> Expr) -> Parser Expr
 _func f c = do
   symbol f
   name <- identifier
@@ -17,6 +18,7 @@ _func f c = do
   body <- expr
   return $ c name body
 
+_cond :: Parser Expr
 _cond = do
   symbol "if" 
   c <- expr
@@ -26,6 +28,7 @@ _cond = do
   e2 <- expr
   return (Cond c e1 e2)
 
+_let :: Parser Expr
 _let = do
   symbol "let"
   n <- identifier
@@ -36,6 +39,7 @@ _let = do
   symbol "end"
   return $ Let n e1 e2
 
+_letrec :: Parser Expr
 _letrec = do
   symbol "letrec"
   binds <- some $ do
@@ -50,6 +54,7 @@ _letrec = do
   symbol "end"
   return $ LetRec binds body
 
+_loop :: Parser Expr
 _loop = do
   symbol "while"
   e1 <- expr
@@ -57,6 +62,7 @@ _loop = do
   e2 <- expr
   return (Loop e1 e2)
 
+_pair :: Parser Expr
 _pair = do
   symbol "("
   e1 <- expr
@@ -65,10 +71,10 @@ _pair = do
   symbol ")"
   return (Pair e1 e2)
 
-
 expr :: Parser Expr
 expr = makeExprParser expr1 table <?> "expression"
 
+expr1 :: Parser Expr
 expr1 = (choice
   [ _cond <?> "conditional statement"
   , _loop <?> "while loop"
@@ -105,12 +111,22 @@ aexpr = (choice
 
 type Parser = Parsec Void String
 
+sc :: Parser ()
 sc = Lex.space space1 empty (Lex.skipBlockCommentNested "(*" "*)")
+
+lexeme :: Parser a -> Parser a
 lexeme = Lex.lexeme sc
+
+integer :: Parser Integer
 integer = lexeme Lex.decimal
+
+symbol :: String -> Parser String
 symbol = Lex.symbol sc
+
+parens :: Parser a -> Parser a
 parens = between (symbol "(") (symbol ")")
 
+table :: [[Operator Parser Expr]]
 table =
   [ [ binaryL "*" Mult , binaryL "/" Div , binaryL "%" Mod ]
   , [ binaryL "+" Add , binaryL "-" Sub ]
@@ -127,11 +143,12 @@ table =
   , [ binary ":=" Assign ]
   , [ binaryL ";" Seq ]
   ]
+  where
+    binary  name f = InfixN (f <$ symbol name)
+    binaryL name f = InfixL (f <$ symbol name)
+    binaryR name f = InfixR (f <$ symbol name)
 
-binary  name f = InfixN (f <$ symbol name)
-binaryL name f = InfixL (f <$ symbol name)
-binaryR name f = InfixR (f <$ symbol name)
-
+reservedWords :: [String]
 reservedWords =
   [ "andalso", "orelse" , "true", "false", "nil", "ref", "do", "not"
   , "fn", "let", "in", "end", "if", "then", "else", "while"
@@ -147,9 +164,14 @@ identifier = (lexeme . try) (p >>= check)
       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
       else return x
 
+prog :: Parser Expr
 prog = sc *> expr <* eof
+
+parseProg :: String -> FilePath -> Either String Expr
 parseProg input filename =
   case parse prog filename input of
     Left err -> Left $ parseErrorPretty err
     Right e -> Right e 
+
+parseMb :: String -> Maybe Expr
 parseMb = parseMaybe prog

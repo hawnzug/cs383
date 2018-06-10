@@ -5,8 +5,8 @@ import Test.Tasty.HUnit
 
 import Simpl.Parser (parseMb)
 import Simpl.Core
-import Simpl.Eval (runEval, Value(..))
 
+parserTests :: TestTree
 parserTests = testGroup "Parser tests"
   [ testCase "Unit, Pair, Parens" $
       parseEq "((()), ())" $

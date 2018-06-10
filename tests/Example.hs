@@ -4,9 +4,10 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Simpl.Parser (parseProg)
-import Simpl.Infer (typeInfer, Type(..))
+import Simpl.Infer (typeInfer)
 import Simpl.Eval (runEval)
 
+example :: TestName -> String -> String -> TestTree
 example name tp val = 
   testCaseSteps name $ \step -> do
     input <- readFile $ "examples/"++name++".spl"
@@ -24,7 +25,7 @@ example name tp val =
               Left err -> assertFailure $ show err
               Right v -> val @=? show v
   
-
+exampleTests :: TestTree
 exampleTests = testGroup "Examples tests"
   [ example "sum" "Int" "6"
   , example "max" "Int" "2"
@@ -33,6 +34,7 @@ exampleTests = testGroup "Examples tests"
   , example "gcd1" "Int" "1029"
   , example "gcd2" "Int" "1029"
   , example "letrec" "Bool" "false"
+  , example "refshow" "ref@ref@Int" "ref@1"
   , example "factorial" "Int" "24"
   , example "pcf.sum" "Int->(Int->Int)" "fun"
   , example "pcf.even" "Int->Bool" "fun"

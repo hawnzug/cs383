@@ -6,6 +6,7 @@ import Test.Tasty.HUnit
 import Simpl.Parser (parseMb)
 import Simpl.Eval (runEval, Value(..))
 
+evalTests :: TestTree
 evalTests = testGroup "Eval tests"
   [ testCase "Reference" $
       evalEq "let x = ref 1 in x := 2; !x+1 end" $

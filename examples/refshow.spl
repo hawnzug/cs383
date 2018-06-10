@@ -1,0 +1,1 @@
+let x = ref 1 in let y = ref x in y end end
