@@ -40,6 +40,7 @@ data Expr
 
   | Seq Expr Expr
   | Let Name Expr Expr
+  | LetRec [(Name, Expr)] Expr
   | Cond Expr Expr Expr
   | Loop Expr Expr
   deriving (Show, Eq)

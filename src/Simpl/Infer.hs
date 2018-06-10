@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -232,6 +233,17 @@ infer (Let x e body) = do
   let s1 = generalize env cs1 t1
   (t2, cs2) <- envInsert x s1 (infer body)
   return (t2, cs1 <> cs2)
+infer (LetRec binds body) = do
+  tvs <- mapM (\x -> (x, ) <$> freshTV) binds
+  let newenv env = foldl f env tvs
+      f e ((name, _), tv) = Map.insert name (Scheme [] tv []) e
+  local newenv $ do
+    let inferOne ((name, e), tv) = do
+          (t, cs) <- infer e
+          return $ (tv, t):cs
+    css <- forM tvs inferOne
+    (t, cs2) <- infer body
+    return $ (t, concat css <> cs2)
 infer (Cond cond e1 e2) = do
   (tc, cs0) <- infer cond
   (t1, cs1) <- infer e1

@@ -36,6 +36,20 @@ _let = do
   symbol "end"
   return $ Let n e1 e2
 
+_letrec = do
+  symbol "letrec"
+  binds <- some $ do
+    symbol "["
+    n <- identifier
+    symbol "="
+    e <- expr
+    symbol "]"
+    return (n, e)
+  symbol "in"
+  body <- expr
+  symbol "end"
+  return $ LetRec binds body
+
 _loop = do
   symbol "while"
   e1 <- expr
@@ -58,6 +72,7 @@ expr = makeExprParser expr1 table <?> "expression"
 expr1 = (choice
   [ _cond <?> "conditional statement"
   , _loop <?> "while loop"
+  , _letrec <?> "letrec statement"
   , _let <?> "let statement"
   , _func "fn" Fn <?> "function"
   , _func "rec" Rec <?> "recursive function"

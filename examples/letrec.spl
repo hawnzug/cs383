@@ -1,0 +1,6 @@
+letrec [odd = fn n => if iszero n then false else even (n-1)]
+       [even = fn n => if iszero n then true else odd (n-1)]
+       [fact = fn n => if iszero n then 1 else n * fact (n-1)]
+       [a = odd (fact 5)]
+       [b = even 11]
+in a orelse b end

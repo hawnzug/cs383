@@ -31,6 +31,9 @@ parserTests = testGroup "Parser tests"
   , testCase "Identifier" $
       parseEq "not' true_ _1a" $
       ((v "not'") `App` (v "true_")) `App` (v "_1a")
+  , testCase "Letrec" $
+      parseEq "letrec [a=b] [b=a] in a end" $
+      LetRec [("a", b), ("b", a)] a
   ]
   where a = v "a"
         b = v "b"

@@ -35,6 +35,7 @@ data Value
   | Vlist [Value]
   | Vfn   Name Expr Env
   | Vrec  Name Expr Env
+  | Vdelay Expr
   deriving (Eq)
 
 instance Show Value where
@@ -102,6 +103,7 @@ eval :: ( MonadReader Env m
 eval (Var n) = do
   reader (Map.lookup n) >>= \case
     Just (Vrec n e env') -> local (const env') (eval $ Rec n e)
+    Just (Vdelay e) -> eval e
     Just v -> return v
     _ -> if elem n preTerms
          then return $ Vpre n
@@ -143,6 +145,10 @@ eval (App e1 e2) = do
 eval (Let x e body) = do
   v <- eval e
   local (Map.insert x v) (eval body)
+
+eval (LetRec binds body) = local update $ eval body
+  where update env = foldl insert env binds
+        insert env (name, e) = Map.insert name (Vdelay e) env
 
 eval (Cond cond e1 e2) = do
   eval cond >>= \case
