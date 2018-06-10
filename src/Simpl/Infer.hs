@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -214,8 +215,7 @@ infer (App e1 e2) = do
   return (tv, (t1, t2 `TArr` tv):cs1 <> cs2)
 infer Unit = return (TUnit, [])
 infer (Var v) = do
-  env <- ask
-  case Map.lookup v env of
+  reader (Map.lookup v) >>= \case
     Just scheme -> instantiate scheme
     Nothing -> inferPre v
 infer (Pair e1 e2) = do

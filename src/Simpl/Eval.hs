@@ -1,14 +1,19 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
 module Simpl.Eval where
 
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Monad.Reader
-import qualified Data.Vector as V
-import Data.Vector (Vector)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 import qualified Data.Map as Map
 import Simpl.Core
+
+-- import Debug.Trace
 
 data Error
   = ErrUnbounded
@@ -41,19 +46,53 @@ instance Show Value where
   show (Vfn _ _ _) = "fun"
 
 type Address = Int
-type Memory = Vector Value
+data Memory = Memory
+  { memory :: IntMap Value
+  , freeAddrs :: [Address]
+  , allocCount :: Int
+  }
 
-allocate :: MonadState Memory m => Value -> m Address
+allocate :: (MonadState Memory m, MonadReader Env m) => Value -> m Address
 allocate v = do
-  m <- get
-  put $! V.snoc m v
-  return $ V.length m
+  -- Memory{..} <- get
+  -- when (allocCount `mod` 10 == 0) gc
+  gc
+  Memory{..} <- get
+  let addr:rest = freeAddrs
+      memory'   = if IntMap.member addr memory
+                  then error "Allocate error"
+                  else IntMap.insert addr v memory
+  put $ Memory memory' rest (allocCount+1)
+  return $ addr
+
+gc :: (MonadState Memory m, MonadReader Env m) => m ()
+gc = do
+  marked <- reader markEnv
+  Memory{..} <- get
+  -- traceShowM memory
+  let addrs = IntSet.fromDistinctAscList $ IntMap.keys memory
+      frees = IntSet.toAscList $ IntSet.difference addrs marked
+      freeAddrs' = frees ++ freeAddrs
+      memory' = foldl (flip IntMap.delete) memory frees
+  put $ Memory memory' freeAddrs' allocCount
+  -- traceShowM memory'
+
+markEnv :: Env -> IntSet
+markEnv m = IntSet.unions (mark <$> Map.elems m)
+
+mark :: Value -> IntSet
+mark (Vref a) = IntSet.singleton a
+mark (Vpair x y) = IntSet.union (mark x) (mark y)
+mark (Vlist xs) = IntSet.unions (mark <$> xs)
+-- TODO Vfn and Vrec
+mark _ = IntSet.empty
 
 assign :: MonadState Memory m => Address -> Value -> m ()
-assign addr v = modify (\m -> m V.// [(addr, v)])
+assign addr v = modify (\Memory{..} -> Memory (IntMap.insert addr v memory) freeAddrs allocCount)
 
 deref :: MonadState Memory m => Address -> m Value
-deref addr = gets (\m -> m V.! addr)
+deref addr = gets (\(Memory m _ _) -> m IntMap.! addr)
+
 type Env = Map.Map Name Value
 
 eval :: ( MonadReader Env m
@@ -61,8 +100,7 @@ eval :: ( MonadReader Env m
         , MonadState Memory m
         ) => Expr -> m Value
 eval (Var n) = do
-  env <- ask
-  case Map.lookup n env of
+  reader (Map.lookup n) >>= \case
     Just (Vrec n e env') -> local (const env') (eval $ Rec n e)
     Just v -> return v
     _ -> if elem n preTerms
@@ -120,10 +158,7 @@ eval e@(Loop cond body) = do
     Vbool False -> return Vunit
     _ -> throwError ErrType
 
-eval (Ref e) = do
-  v <- eval e
-  addr <- allocate v
-  return $ Vref addr
+eval (Ref e) = eval e >>= allocate >>= return . Vref
 
 eval (Deref e) = do
   v <- eval e
@@ -206,4 +241,5 @@ evalPre _ _ = throwError ErrType
 
 runEval :: Expr -> Either Error Value
 runEval expr =
-  flip evalStateT V.empty $ runReaderT (eval expr) Map.empty
+  flip evalStateT (Memory IntMap.empty [0..] 0) $
+    runReaderT (eval expr) Map.empty
