@@ -13,8 +13,6 @@ import qualified Data.IntSet as IntSet
 import qualified Data.Map as Map
 import Simpl.Core
 
--- import Debug.Trace
-
 data Error
   = ErrUnbounded
   | ErrApp
@@ -59,9 +57,8 @@ data Memory = Memory
 
 allocate :: (MonadState Memory m, MonadReader Env m) => Value -> m Address
 allocate v = do
-  -- Memory{..} <- get
-  -- when (allocCount `mod` 10 == 0) gc
-  gc
+  Memory{..} <- get
+  when (allocCount `mod` 10 == 0) gc
   Memory{..} <- get
   let addr:rest = freeAddrs
       memory'   = if IntMap.member addr memory
@@ -74,13 +71,11 @@ gc :: (MonadState Memory m, MonadReader Env m) => m ()
 gc = do
   marked <- reader markEnv
   Memory{..} <- get
-  -- traceShowM memory
   let addrs = IntSet.fromDistinctAscList $ IntMap.keys memory
       frees = IntSet.toAscList $ IntSet.difference addrs marked
       freeAddrs' = frees ++ freeAddrs
       memory' = foldl (flip IntMap.delete) memory frees
   put $ Memory memory' freeAddrs' allocCount
-  -- traceShowM memory'
 
 markEnv :: Env -> IntSet
 markEnv m = IntSet.unions (mark <$> Map.elems m)

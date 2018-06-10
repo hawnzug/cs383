@@ -12,8 +12,6 @@ extra-source-files:  README.md
 dependencies:
   - base
 
-ghc-options: -Wall
-
 library:
   source-dirs: src
   dependencies:
